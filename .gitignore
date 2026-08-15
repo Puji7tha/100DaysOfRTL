@@ -1,0 +1,15 @@
+# simulation outputs
+*.out
+*.vcd
+*.wlf
+*.gtkw
+
+# synthesis outputs
+*_netlist.v
+*.blif
+*.json
+
+# editor / OS noise
+.vscode/
+*.swp
+.DS_Store
