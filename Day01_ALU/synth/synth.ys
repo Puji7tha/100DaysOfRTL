@@ -1,0 +1,8 @@
+read_verilog -sv rtl/ALU.v
+hierarchy -top ALU
+proc
+opt
+techmap
+opt
+stat
+write_verilog synth/ALU_netlist.v
