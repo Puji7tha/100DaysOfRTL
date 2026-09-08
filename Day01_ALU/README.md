@@ -129,3 +129,74 @@ yosys -s synth/synth.ys
 - Wrap in input/output registers to enable static timing analysis
 - Run OpenSTA to measure the critical path and confirm the divider dominates
 - Resolve the multiply truncation
+
+## Critical path analysis
+
+`yosys -p "read_verilog -sv rtl/ALU.v; hierarchy -top ALU; proc; opt; techmap; opt; ltp"`
+
+Longest topological path: **129 gate levels**, starting at `d0[5]` and ending at `zero`.
+
+### Path breakdown
+
+| Segment | Levels | Share |
+|---------|--------|-------|
+| Divider (9 stages) | ~117 | 91% |
+| 16-way `case` multiplexer | ~6 | 5% |
+| Zero-flag reduction | ~4 | 3% |
+
+### Why the divider dominates
+
+Steps 2-118 of the path are nine near-identical blocks, each producing one
+quotient bit from MSB to LSB:
+
+| Stage | Path step | Output |
+|-------|-----------|--------|
+| 1 | 11 | `$div.Y[8]` |
+| 2 | 24 | `$div.Y[7]` |
+| 3 | 38 | `$div.Y[6]` |
+| ... | ... | ... |
+| 9 | 118 | `$div.Y[0]` |
+
+Each stage is a compare (`$ge`), a Brent-Kung lookahead carry unit (`lcu`), and
+logic to select the quotient bit — roughly 13 gate levels. Stages are linked by
+`div_mod_u.chaindata`, the running remainder, visible at path steps 12, 25, 39,
+53, 66, 79, 92 and 105.
+
+This is textbook long division implemented in gates: compare, conditionally
+subtract, record a quotient bit, pass the remainder onward. The stages are
+strictly sequential — stage N cannot start until stage N-1's remainder exists.
+
+**Depth scales linearly with operand width.** 8-bit operands give 9 stages
+(~129 levels); 16-bit would give ~17 stages (~230 levels). Multiplication does
+not have this problem: its partial products resolve in parallel, so it is wide
+but shallow.
+
+### Logic depth by operator
+
+Synthesized in isolation:
+
+| Operation | Cells | Depth |
+|-----------|-------|-------|
+| AND | 8 | ~1 |
+| XOR | 8 | ~1 |
+| ADD | 49 | ~1 |
+| MUL | 184 | ~1 |
+| **DIV** | **498** | **17** |
+
+### Consequence
+
+Combinational logic must settle within one clock period regardless of which
+operation `sel` selects. A cycle performing a single AND still waits for a clock
+period sized by the 129-level divider path. At a nominal ~50 ps per gate level
+that is roughly 6.5 ns, or ~155 MHz; without the divider the deepest remaining
+path is on the order of 25 levels.
+
+This is why production designs either implement division as a multi-cycle
+iterative unit, pipeline it across several stages, or omit it entirely — the
+ARM Cortex-M0 has no divide instruction at all.
+
+### Secondary observation
+
+The zero flag adds ~4 levels *after* `result` is computed, because
+`(result[7:0] == 8'b0)` requires OR-reducing eight bits. Negligible next to the
+divider, but it would become a meaningful fraction of a divider-free design.
