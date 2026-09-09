@@ -200,3 +200,85 @@ ARM Cortex-M0 has no divide instruction at all.
 The zero flag adds ~4 levels *after* `result` is computed, because
 `(result[7:0] == 8'b0)` requires OR-reducing eight bits. Negligible next to the
 divider, but it would become a meaningful fraction of a divider-free design.
+
+## Static timing analysis
+
+Technology mapped to **Nangate45** (`nangate45_slow.lib`, slow corner) via Yosys
+`abc -liberty`, analysed with OpenSTA 2.0.17.
+
+### Area
+
+| Metric | Value |
+|--------|-------|
+| Chip area | 877.00 um^2 |
+| Sequential elements | 164.92 um^2 (18.8%) |
+| Flip-flops | 31 x `DFFR_X1` |
+
+The RTL declares 33 registered bits, but synthesis emitted 31 flip-flops.
+`carry_out` and `negative_out` were proven equivalent to `result_out[8]` and
+`result_out[7]` and merged:
+
+```verilog
+assign carry_out    = result_out[8];
+assign negative_out = result_out[7];
+```
+
+Note also that flip-flops are 18.8% of area but only ~5% of cell count — cell
+count substantially understates sequential cost, since a flop is physically much
+larger than a simple gate.
+
+### Critical path
+
+Register-to-register, `_1305_` to `_1293_`, at a 10 ns constraint:
+
+| Component | Delay |
+|-----------|-------|
+| Clock-to-Q of launching flop | 0.418 ns |
+| Combinational logic (41 cells) | 8.515 ns |
+| **Data arrival** | **8.933 ns** |
+| Setup requirement at capture flop | 0.161 ns |
+| **Data required** | **9.839 ns** |
+| **Slack** | **+0.905 ns (MET)** |
+
+The mapped path is **41 cells**, not the 129 levels reported by `ltp` on the
+generic netlist. `abc` collapsed chains of simple gates into complex cells
+(`AOI33_X1`, `OAI222_X1`, `AOI221_X1`), each implementing in one cell what
+previously took several. Logic depth on an unmapped netlist is therefore a rough
+proxy only — technology mapping changed it by roughly 3x here.
+
+Average delay per cell is ~0.21 ns, well above a nominal-corner rule of thumb of
+~50 ps, reflecting both the slow characterisation corner and the use of
+minimum-drive (`_X1`) complex cells.
+
+### Frequency sweep
+
+| Period | Slack | Frequency | Result |
+|--------|-------|-----------|--------|
+| 10.0 ns | +0.905 | 100 MHz | MET |
+| 9.1 ns | +0.005 | 110 MHz | MET (marginal) |
+| 8.5 ns | -0.595 | 118 MHz | VIOLATED |
+
+**Fmax ~= 110 MHz** at this corner.
+
+At the failing corner, `wns = -0.59` and `tns = -1.16`. The ratio matters: `tns`
+being roughly 2x `wns` indicates about two failing paths of similar severity, not
+a single outlier and not a widespread failure. This distinction determines whether
+a design needs a targeted fix or architectural rework.
+
+### Caveats
+
+The analysis assumes an ideal clock network (`clock network delay (ideal)` in the
+report) and zero interconnect delay. Post-place-and-route timing is invariably
+worse — routing adds capacitance and the clock tree adds skew, typically costing
+10-30%. Signing off at +0.005 ns slack would be reckless; a realistic target for
+this design is 90-100 MHz.
+
+### Reproducing
+
+```bash
+yosys -s synth/synth_sta.ys        # map to Nangate45 cells
+sta -no_splash -exit sta/run_sta.tcl
+```
+
+Requires `nangate45_slow.lib`; paths in `synth/synth_sta.ys` and
+`sta/run_sta.tcl` are absolute and will need adjusting.

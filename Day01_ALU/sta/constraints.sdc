@@ -1,0 +1,6 @@
+create_clock -name clk -period 9.1 [get_ports clk]
+set_input_delay  2.0 -clock clk [get_ports {d0_in[*] d1_in[*] sel_in[*]}]
+set_output_delay 2.0 -clock clk [get_ports {result_out[*] zero_out carry_out negative_out overflow_out}]
+set_false_path -from [get_ports rst_n]
+set_driving_cell -lib_cell BUF_X1 [all_inputs]
+set_load 0.05 [all_outputs]
