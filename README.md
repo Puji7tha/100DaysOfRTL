@@ -12,6 +12,7 @@ nanoseconds — and what stops it running faster.
 | Day | Project | Cells | Area | Fmax | Finding |
 |-----|---------|-------|------|------|---------|
 | 01 | [8-bit ALU](Day01_ALU/) | 1193 | 877 µm² | 110 MHz | `/` is 43% of combinational area and sets the critical path for all 16 operations |
+| 02–03 | [Gray converters](Day02_03_Gray/) | 63–321 | — | — | bin2gray is depth 1 at any width; gray2bin trades 5× area for 10× depth |
 
 *Area and Fmax measured on Nangate45 (slow corner) via Yosys `abc -liberty` and OpenSTA.*
 
